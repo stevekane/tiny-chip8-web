@@ -19,54 +19,58 @@ class Chip8 {
     this.stack = new Uint16Array(MAX_STACK_FRAMES)
     this.memory = new Uint8Array(4096)
     this.memory.set(program,512)
+    this.op = new Uint8Array(4)
   }
 
   execute(debugging=false) {
     const l = this.memory[this.PC[0]]
     const r = this.memory[this.PC[0] + 1]
-    const op = [ highNibble(l), lowNibble(l), highNibble(r), lowNibble(r)]
+    
+    this.op[0] = highNibble(l)
+    this.op[1] = lowNibble(l)
+    this.op[2] = highNibble(r)
+    this.op[3] = lowNibble(r)
 
     // 00E0 clear  
-    if (op[0] == 0b0000 && op[2] == 0b1110) {
+    if (this.op[0] == 0b0000 && this.op[2] == 0b1110) {
       this.display.fill(0)
       this.stepPC(INSTRUCTION_BYTE_LENGTH)
     } 
     // 1NNN jump. set PC to 12-bit value NNN
-    else if (op[0] == 0b0001) {
-      let nnn = bit12(op[1],op[2],op[3])
+    else if (this.op[0] == 0b0001) {
+      let nnn = bit12(this.op[1],this.op[2],this.op[3])
       this.setPC(nnn)
     }
     // 6XNN set VX to NN
-    else if (op[0] == 0b0110) {
-      let x = op[1]
-      let nn = bit8(op[2],op[3])
+    else if (this.op[0] == 0b0110) {
+      let x = this.op[1]
+      let nn = bit8(this.op[2],this.op[3])
       this.setRegister(x,nn)
       this.stepPC(INSTRUCTION_BYTE_LENGTH)
     }
     // 7XNN add NN to VX
-    else if (op[0] == 0b0111) {
-      let x = op[1]
-      let nn = bit8(op[2],op[3])
+    else if (this.op[0] == 0b0111) {
+      let x = this.op[1]
+      let nn = bit8(this.op[2],this.op[3])
       this.incrementRegister(x,nn)
       this.stepPC(INSTRUCTION_BYTE_LENGTH)
     }
     // ANNN set I to NNN
-    else if (op[0] == 0b1010) {
-      let nnn = bit12(op[1],op[2],op[3])
+    else if (this.op[0] == 0b1010) {
+      let nnn = bit12(this.op[1],this.op[2],this.op[3])
       this.setI(nnn)
       this.stepPC(INSTRUCTION_BYTE_LENGTH)
     }
     // DXYN draw N pixels tall sprite from memory[I] at X from VX and Y from VY
-    else if (op[0] == 0b1101) {
-      let [_,xAddr,yAddr,n] = op
-      let x = this.V[xAddr] % SCREEN_WIDTH
-      let y = this.V[yAddr] % SCREEN_HEIGHT
-      let sprite = this.memory.slice(this.I, this.I+n)
-      this.drawSprite(x, y, n, sprite)
+    else if (this.op[0] == 0b1101) {
+      let x = this.V[this.op[1]] % SCREEN_WIDTH
+      let y = this.V[this.op[2]] % SCREEN_HEIGHT
+      let sprite = this.memory.slice(this.I, this.I+this.op[3])
+      this.drawSprite(x, y, this.op[3], sprite)
       this.stepPC(INSTRUCTION_BYTE_LENGTH)
     }
     else {
-      console.log(`Unrecognized instruction: ${op}`)
+      console.log(`Unrecognized instruction: ${this.op}`)
     }
   }
 
