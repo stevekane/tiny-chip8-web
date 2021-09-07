@@ -1,44 +1,28 @@
 const fs = require("fs")
 
-/*
-The goal is to implement a console-rendering of the smallest subset of the 
-chip8 instruction-set that renders the IBM logo. This does not include 
-keyboard handling, audio, or most of the logical opcodes. What it does
-prove out is that you have a basic rendering loop and a few opcodes
-correctly interpreted.
-
-Why do this?
-
-I am considering using chip-8 emulation as a target for the new language
-to build something sort of "non-trivial" while also being fun and requring
-access to external hardware and some "low-level" notions like bytes.
-
-Chip-8 specs:
-
-4kb of RAM
-64×32 pixel display (each pixel is a bit, this is therefore 8x4 bytes)
-Program counter (PC)
-16-bit index register (I)
-16-bit stack
-8-bit delay timer decremented at 60Hz
-8-bit sound timer decremented at 60Hz. Plays beep when non-zero
-16 8-bit registers (V0-VF)
-
-In javascript, we'll handle all bytes via Uint8Array. That is, each entry in 
-this array is 1 byte.
-*/
-
+const INSTRUCTIONS_PER_CYCLE = 1
 const MAX_STACK_FRAMES = 128
 const REGISTER_COUNT = 16
 const SCREEN_WIDTH = 64
 const SCREEN_HEIGHT = 32
+// fetch two bytes (1 instruction) from memory
+const fetchInstruction = c => c.memory.slice(c.PC[0],c.PC[0] + 2)
+// get the value of the greatest 4 bits of a byte
+const highNibble = byte => (byte & 0xF0) >> 4
+// get the value of the least 4 bits of a byte
+const lowNibble = byte => byte & 0x0F
+// split two bytes into 4 nibbles (half bytes)
+const decodeInstruction = i => ([ highNibble(i[0]), lowNibble(i[0]), highNibble(i[1]), lowNibble(i[1]) ])
+// step the program counter by two (instructions are two bytes each)
+const stepPC = c => c.PC[0] += 2
+// returns value of nth bit in the byte b
+const nthbit = (n,b) => (b & (1 << n)) > 0
+// combine two nibbles into an 8bit number
+const bit8 = (x,y) => (x << 4) + y
+// combine three nibbles into a 12bit number
+const bit12 = (x,y,z) => (x << 8) + (y << 4) + z
 
 class Chip8 {
-  // program should be copied into memory beginning at offset 512
-  // the chip-8 VM + standard characters occupy the first 512 locations
-  // as per the specification
-  // the program counter should also be initialized to 512 where the 
-  // loaded program begins
   constructor(program) {
     this.display = new Uint8Array(SCREEN_WIDTH * SCREEN_HEIGHT)
     this.PC = new Uint16Array([512])
@@ -50,30 +34,6 @@ class Chip8 {
     this.memory = new Uint8Array(4096)
     this.memory.set(program,512)
   }
-}
-
-function fetch(c) {
-  return c.memory.slice(c.PC[0],c.PC[0] + 2)
-}
-
-function highNibble(byte) {
-  return (byte & 0xF0) >> 4
-}
-
-function lowNibble(byte) {
-  return byte & 0x0F
-}
-
-function decode(i) {
-  return [ highNibble(i[0]), lowNibble(i[0]), highNibble(i[1]), lowNibble(i[1]) ]
-}
-
-function stepPC(c) {
-  c.PC[0] += 2
-}
-
-function bitNumber(n,b) {
-  return (b & (1 << n)) != 0
 }
 
 function execute(op, c) {
@@ -128,21 +88,6 @@ function execute(op, c) {
   }
 }
 
-function bit8(x,y) {
-  return (x << 4) + y
-}
-
-function bit12(x,y,z) {
-  return (x << 8) + (y << 4) + z
-}
-
-const sprite = new Uint8Array([
-  0b00111100,
-  0b11000011,
-  0b11000011,
-  0b00111100
-])
-
 // TODO: handle the case of overlap/wrapping later
 function drawSprite(c,xMin,yMin,n,s) {
   for (var j = 0; j < n; j++) {
@@ -152,7 +97,7 @@ function drawSprite(c,xMin,yMin,n,s) {
       let x = xMin + i
       let index = y * SCREEN_WIDTH + x
       let displayPixel = c.display[index]
-      let spritePixel = bitNumber(7 - i,s[j])
+      let spritePixel = nthbit(7 - i,s[j])
 
       if (displayPixel > 0 && spritePixel > 0) {
         c.display[index] = 0
@@ -161,10 +106,9 @@ function drawSprite(c,xMin,yMin,n,s) {
       }
     }
   } 
-  render(c)
 }
 
-function render(c) {
+function renderConsole(c) {
   console.log("------------------------------------------------------------------")
   for (var j = 0; j < SCREEN_HEIGHT; j++) {
     let offset = j * SCREEN_WIDTH
@@ -177,17 +121,57 @@ function render(c) {
   }
   console.log("------------------------------------------------------------------")
 }
-const program = fs.readFileSync("./IBM Logo.ch8")
-const chip8 = new Chip8(program)
 
-drawSprite(chip8,0,0,4,sprite)
-drawSprite(chip8,56,28,4,sprite)
-render(chip8)
+function renderCanvas(c, ctx) {
+  let imageData = ctx.createImageData(ctx.width, ctx.height)
 
-setInterval(_ => { 
-  let ins = fetch(chip8)
-  let op = decode(ins)
+  for (var j = 0; j < SCREEN_HEIGHT; j++) {
+    let offset = j * SCREEN_WIDTH
+    for (var i = 0; i < SCREEN_WIDTH; i++) {
+      let pixel = c.display[offset + i]
+      let target = (offset + i) * 4
 
-  execute(op,chip8)
-  render(chip8)
-}, 1000)
+      imageData.data[target + 0] = pixel ? 255 : 0
+      imageData.data[target + 1] = pixel ? 215 : 0
+      imageData.data[target + 3] = pixel ? 255 : 0
+    }
+  }
+  ctx.clearRect(0, 0, ctx.width, ctx.height)
+  ctx.scale(10,10)
+  ctx.putImageData(imageData, 0, 0)
+}
+
+async function main() {
+  let options = { responseType: "arraybuffer" }
+  let url = "http://localhost:9966/IBM Logo.ch8"
+  let contents = await fetch(url, options)
+  let buffer = await contents.arrayBuffer()
+  let program = new Uint8Array(buffer)
+  let chip8 = new Chip8(program)
+  let canvas = document.createElement("canvas")
+  let ctx = canvas.getContext("2d")
+  let SCALE_FACTOR = 10
+
+  canvas.width = SCREEN_WIDTH * 10
+  canvas.height = SCREEN_HEIGHT * 10
+  ctx.width = SCREEN_WIDTH
+  ctx.height = SCREEN_HEIGHT
+  document.body.style.backgroundColor = "grey"
+  document.body.appendChild(canvas)
+  function runVM() {
+    let instructionsExecuted = 0
+  
+    while (instructionsExecuted++ < INSTRUCTIONS_PER_CYCLE) {
+      let ins = fetchInstruction(chip8)
+      let op = decodeInstruction(ins)
+
+      execute(op,chip8)
+    }
+    // renderConsole(chip8)
+    renderCanvas(chip8, ctx)
+    requestAnimationFrame(runVM)
+  }
+  runVM()
+}
+
+main()
