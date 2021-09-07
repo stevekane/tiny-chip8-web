@@ -43,18 +43,21 @@ class Chip8 {
     // 00E0 clear  
     if (this.getOp(0) == 0x0 && this.getOp(2) == 0xE && this.getOp(3) == 0x0) {
       this.display.fill(0)
+      if (debugging) console.log("CLEAR")
     } 
 
     // 00EE return from subroutine
     else if (this.getOp(0) == 0x0 && this.getOp(2) == 0xE && this.getOp(3) == 0xE) {
       let addr = this.popStack()
       this.setPC(addr)
+      if (debugging) console.log(`RETURN to ${addr}`)
     }
 
     // 1NNN jump. set PC to 12-bit value NNN
     else if (this.getOp(0) == 0x1) {
       let nnn = bit12(this.getOp(1), this.getOp(2), this.getOp(3))
       this.setPC(nnn)
+      if (debugging) console.log(`JUMP to ${nnn}`)
     }
 
     // 2NNN call subroutine at NNN, store PC on stack and change PC
@@ -63,36 +66,31 @@ class Chip8 {
       let pc = this.getPC()
       this.pushStack(pc)
       this.setPC(nnn)
+      if (debugging) console.log(`CALL at ${nnn}. STORE ${pc}`)
     }
 
     // 3XNN if VX == NN step PC
     else if (this.getOp(0) == 0x3) {
       let vx = this.getRegister(this.getOp(1))
       let nn = bit8(this.getOp(2), this.getOp(3))
-
-      if (vx == nn) {
-        this.stepPC(INSTRUCTION_BYTE_LENGTH)
-      }
+      this.stepPC(vx == nn ? INSTRUCTION_BYTE_LENGTH : 0)
+      if (debugging) console.log(`SKIP IF ${vx} == ${nn}`)
     }
 
     // 4XNN if VX != NN step PC
     else if (this.getOp(0) == 0x4) {
       let vx = this.getRegister(this.getOp(1))
       let nn = bit8(this.getOp(2), this.getOp(3))
-
-      if (vx != nn) {
-        this.stepPC(INSTRUCTION_BYTE_LENGTH)
-      }
+      this.stepPC(vx != nn ? INSTRUCTION_BYTE_LENGTH : 0)
+      if (debugging) console.log(`SKIP IF ${vx} != ${nn}`)
     }
 
     // 5XY0 if VX == VY step PC
     else if (this.getOp(0) == 0x5 && this.getOp(3) == 0x0) {
       let vx = this.getRegister(this.getOp(1))
       let vy = this.getRegister(this.getOp(2))
-
-      if (vx == vy) {
-        this.stepPC(INSTRUCTION_BYTE_LENGTH)
-      }
+      this.stepPC(vx == vy ? INSTRUCTION_BYTE_LENGTH : 0)
+      if (debugging) console.log(`SKIP IF ${vx} == ${vy}`)
     }
 
     // 6XNN set VX to NN
@@ -100,6 +98,7 @@ class Chip8 {
       let x = this.getOp(1)
       let nn = bit8(this.getOp(2), this.getOp(3))
       this.setRegister(x, nn)
+      if (debugging) console.log(`SET V(${x}) to ${nn}`)
     }
     
     // 7XNN add NN to VX
@@ -109,6 +108,7 @@ class Chip8 {
       let nn = bit8(this.getOp(2), this.getOp(3))
       let result = vx + nn
       this.setRegister(xRegister,result)
+      if (debugging) console.log(`ADD ${nn} to V(${xRegister})`)
     }
 
     // 8XY0 set VX to VY
@@ -117,6 +117,7 @@ class Chip8 {
       let yRegister = this.getOp(2)
       let vy = this.getRegister(yRegister)
       this.setRegister(xRegister, vy)
+      if (debugging) console.log(`SET V(${xRegister}) to V(${yRegister})`)
     }
 
     // 8XY1 set VX to VX | VY
@@ -126,6 +127,7 @@ class Chip8 {
       let vx = this.getRegister(xRegister)
       let vy = this.getRegister(yRegister)
       this.setRegister(xRegister, vx | vy)
+      if (debugging) console.log(`SET V(${xRegister}) to V(${xRegister}) | V(${yRegister})`)
     }
 
     // 8XY2 set VX to VX & VY
@@ -135,6 +137,7 @@ class Chip8 {
       let vx = this.getRegister(xRegister)
       let vy = this.getRegister(yRegister)
       this.setRegister(xRegister, vx & vy)
+      if (debugging) console.log(`SET V(${xRegister}) to V(${xRegister}) & V(${yRegister})`)
     }
 
     // 8XY3 set VX to VX ^ VY.
@@ -144,6 +147,7 @@ class Chip8 {
       let vx = this.getRegister(xRegister)
       let vy = this.getRegister(yRegister)
       this.setRegister(xRegister, vx ^ vy)
+      if (debugging) console.log(`SET V(${xRegister}) to V(${xRegister}) ^ V(${yRegister})`)
     }
 
     // 8XY4 VX += VY. set VF to 1 when carry otherwise 0
@@ -155,6 +159,7 @@ class Chip8 {
       let result = vx + vy
       this.setRegister(0xF, result > 255)
       this.setRegister(xRegister, result)
+      if (debugging) console.log(`ADD V(${yRegister}) to V(${xRegister}). SET VF when carry`)
     }
 
     // 8XY5 VX -= VY. set VF to 0 when borrow otherwise 1
@@ -166,6 +171,7 @@ class Chip8 {
       let result = vx - vy
       this.setRegister(0xF, vx >= vy)
       this.setRegister(xRegister, result)
+      if (debugging) console.log(`SUB V(${yRegister}) from V(${xRegister}). SET VF when not borrow`)
     }
 
     // 8X_6 VX >>= 1. set VF to LSB(VX) then shift VX right by 1
@@ -176,6 +182,7 @@ class Chip8 {
       let result = vx >> 1
       this.setRegister(0xF, lsbvx)
       this.setRegister(xRegister, result)
+      if (debugging) console.log(`STORE LSB(V(${xRegister})) in 0xF. SHIFT V(${xRegister}) right by 1`)
     }
 
     // 8XY7 set VX to VY - VX. set VF to 0 when borrow otherwise 1
@@ -187,6 +194,7 @@ class Chip8 {
       let result = vy - vx
       this.setRegister(0xF, vy >= vx)
       this.setRegister(xRegister, result)
+      if (debugging) console.log(`SET V(${xRegister}) to V(${yRegister}) - V(${xRegister}). SET VF when not borrow`)
     }
 
     // 8XYE VX <<= 1. set VF to MSB(VX) then shift VX left by 1
@@ -197,30 +205,31 @@ class Chip8 {
       let result = vx << 1
       this.setRegister(0b1111, msbvx)
       this.setRegister(xRegister, result)
+      if (debugging) console.log(`STORE MSB(V(${xRegister})) in 0xF. SHIFT V(${xRegister}) left by 1`)
     }
 
     // 9XY0 if VX != VY step PC
     else if (this.getOp(0) == 0x9 && this.getOp(3) == 0x0) {
       let vx = this.getRegister(this.getOp(1))
       let vy = this.getRegister(this.getOp(2))
-
-      if (vx != vy) {
-        this.stepPC(INSTRUCTION_BYTE_LENGTH)
-      }
+      this.stepPC(vx != vy ? INSTRUCTION_BYTE_LENGTH : 0)
+      if (debugging) console.log(`SKIP IF ${vx} != ${vy}`)
     }
 
     // ANNN set I to NNN
     else if (this.getOp(0) == 0xA) {
       let nnn = bit12(this.getOp(1), this.getOp(2), this.getOp(3))
       this.setI(nnn)
+      if (debugging) console.log(`SET I to ${nnn}`)
     }
 
     // BNNN set PC to V0 + NNN
     else if (this.getOp(0) == 0xB) {
-      let v0 = this.getRegister(0b0000)
+      let v0 = this.getRegister(0x0)
       let nnn = bit12(this.getOp(1), this.getOp(2), this.getOp(3))
       let result = v0 + nnn
       this.setPC(result)
+      if (debugging) console.log(`SET PC to ${v0} + ${nnn}`)
     }
 
     // CXNN set VX to NN & RandomNumber (0...255)
@@ -231,6 +240,7 @@ class Chip8 {
       let rand = Math.random() * 256 | 0
       let result = vx & rand
       this.setRegister(xRegister, result)
+      if (debugging) console.log(`SET V(${xRegister}) to ${nn} & ${rand}`)
     }
 
     // DXYN draw N pixels tall sprite from memory[I] at X from VX and Y from VY
@@ -242,6 +252,7 @@ class Chip8 {
       let height = this.getOp(3)
       let memoryOffset = this.getI()
       this.drawSprite(x, y, height, memoryOffset)
+      if (debugging) console.log(`DRAW at ${[x,y]} height ${height} at offset ${memoryOffset}`)
     }
 
     // FX07 set VX to D
@@ -275,6 +286,7 @@ class Chip8 {
       let i = this.getI()
       let result = vx + i
       this.setI(result)
+      if (debugging) console.log(`ADD V(${xRegister}) to ${i}`)
     }
 
     // FX29 set I to sprite_address(VX). this requires us to decide where in memory we store the fonts
@@ -294,24 +306,24 @@ class Chip8 {
       let hundredsvx = hundreds(vx)
       let tensvx = tens(vx)
       let onesvx = ones(vx)
-      console.log(vx,hundredsvx,tensvx,onesvx,i)
       this.setMemory(i,hundredsvx) 
       this.setMemory(i+1,tensvx) 
       this.setMemory(i+2,onesvx) 
-      console.log(this.memory[i],this.memory[i+1],this.memory[i+2])
+      if (debugging) console.log(`SET MEM[i] to ${hundredsvx}. SET MEM[i+1] to ${tensvx}. SET MEM[i+2] to ${onesvx}`)
     }
 
     // FX55 dump registers V0-VX to memory beginning at I
     else if (this.getOp(0) == 0xF && this.getOp(2) == 0x5 && this.getOp(3) == 0x5) {
       let i = this.getI()
       this.dumpRegisters(i)
+      if (debugging) console.log(`DUMP REGISTERS`)
     }
 
     // FX65 load registers V0-VX from memory beginning at I
     else if (this.getOp(0) == 0xF && this.getOp(2) == 0x6 && this.getOp(3) == 0x5) {
-      console.log("Load regs")
       let i = this.getI()
       this.loadRegisters(i)
+      if (debugging) console.log(`LOAD REGISTERS`)
     }
 
     // catch-all for debugging
@@ -475,7 +487,6 @@ async function main() {
   document.body.appendChild(canvas)
 
   console.warn("REMINDER: Add actual fonts")
-  window.chip8 = chip8
   function runVM() {
     let instructionsExecuted = 0
     let debugging = true
