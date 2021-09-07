@@ -12,6 +12,7 @@ class Chip8 {
   constructor(program) {
     this.display = new Uint8Array(SCREEN_WIDTH * SCREEN_HEIGHT)
     this.PC = new Uint16Array([512])
+    this.SP = new Uint16Array([0])
     this.I = new Uint16Array(1)
     this.D = new Uint8Array(1)
     this.S = new Uint8Array(1)
@@ -24,10 +25,10 @@ class Chip8 {
 
   execute(debugging=false) {
     this.fetchOp()
+    this.stepPC(INSTRUCTION_BYTE_LENGTH)
     // 00E0 clear  
     if (this.getOp(0) == 0b0000 && this.getOp(2) == 0b1110) {
       this.display.fill(0)
-      this.stepPC(INSTRUCTION_BYTE_LENGTH)
     } 
     // 1NNN jump. set PC to 12-bit value NNN
     else if (this.getOp(0) == 0b0001) {
@@ -39,20 +40,17 @@ class Chip8 {
       let x = this.getOp(1)
       let nn = bit8(this.getOp(2),this.getOp(3))
       this.setRegister(x,nn)
-      this.stepPC(INSTRUCTION_BYTE_LENGTH)
     }
     // 7XNN add NN to VX
     else if (this.getOp(0) == 0b0111) {
       let x = this.getOp(1)
       let nn = bit8(this.getOp(2),this.getOp(3))
       this.incrementRegister(x,nn)
-      this.stepPC(INSTRUCTION_BYTE_LENGTH)
     }
     // ANNN set I to NNN
     else if (this.getOp(0) == 0b1010) {
       let nnn = bit12(this.getOp(1),this.getOp(2),this.getOp(3))
       this.setI(nnn)
-      this.stepPC(INSTRUCTION_BYTE_LENGTH)
     }
     // DXYN draw N pixels tall sprite from memory[I] at X from VX and Y from VY
     else if (this.getOp(0) == 0b1101) {
@@ -63,7 +61,6 @@ class Chip8 {
       let height = this.getOp(3)
       let memoryOffset = this.getI()
       this.drawSprite(x, y, height, memoryOffset)
-      this.stepPC(INSTRUCTION_BYTE_LENGTH)
     }
     else {
       console.log(`Unrecognized instruction: ${this.op}`)
@@ -87,6 +84,15 @@ class Chip8 {
 
   setPC(v) {
     this.PC[0] = v
+  }
+
+  pushStack(v) {
+    this.stack[this.SP[0]] = v
+    this.SP[0]++
+  }
+
+  popStack(v) {
+    this.SP[0]--
   }
 
   getI() {
