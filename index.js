@@ -6,7 +6,6 @@ const testprogram = require("./test-program.js")
 const IBM_URL = "http://localhost:9966/IBM Logo.ch8"
 const TEST_URL = "http://localhost:9966/test_opcode.ch8"
 const INSTRUCTION_BYTE_LENGTH = 2
-const INSTRUCTIONS_PER_CYCLE = 10
 const MAX_STACK_FRAMES = 128
 const REGISTER_COUNT = 16
 const SCREEN_WIDTH = 64
@@ -14,6 +13,8 @@ const SCREEN_HEIGHT = 32
 const FONT_MEMORY_OFFSET = 0 // tradition says 050 .. maybe change?
 const FONT_HEIGHT = 5
 const PROGRAM_MEMORY_OFFSET = 512
+const TIMER_FREQUENCY = 60
+const CLOCK_FREQUENCY = 500
 
 class Chip8 {
   constructor(program, font) {
@@ -409,12 +410,10 @@ class Chip8 {
     this.memory[i] = v
   }
 
-  // grab registers [0-x] and copy them into memory beginning at i
   dumpRegisters(x, i) {
     this.memory.set(this.V.slice(0, x+1), i)
   }
 
-  // grab memory addresses [i-i+x] and copy them into registers beginning at 0
   loadRegisters(x, i) {
     this.V.set(this.memory.slice(i, i+x+1), 0)
   }
@@ -484,7 +483,7 @@ async function main() {
   let contents = await fetch(TEST_URL, options)
   let buffer = await contents.arrayBuffer()
   let program = new Uint8Array(buffer)
-  let chip8 = new Chip8(testprogram, font)
+  let chip8 = new Chip8(program, font)
   let canvas = document.createElement("canvas")
   let ctx = canvas.getContext("2d")
   canvas.width = SCREEN_WIDTH
@@ -493,14 +492,50 @@ async function main() {
   ctx.height = SCREEN_HEIGHT
   document.body.style.backgroundColor = "grey"
   document.body.appendChild(canvas)
+  let prev = Date.now()
+  let cur = Date.now()
+  let dt = 0
+  let clockElapsed = 0
+  let timeToNextTimerTick = 0
+  let testTimer = 600
+  let testInstructionsExecuted = 0
+  let testTotalElapsed = 0
 
   function runVM() {
-    let instructionsExecuted = 0
     let debugging = false
+    let secondsPerInstruction = 1 / CLOCK_FREQUENCY
+    let secondsPerTimerTick = 1 / TIMER_FREQUENCY
   
-    while (instructionsExecuted++ < INSTRUCTIONS_PER_CYCLE) {
+    prev = cur
+    cur = Date.now()
+    dt = (cur - prev) / 1000
+    clockElapsed += dt
+
+    // TODO: An important detail:
+    //   Actual Chip-8 is not a single cycle/instruction but rather it may be
+    //   many cycles resulting in different operation run-times.
+    //   A great reference is here:
+    //     https://jackson-s.me/2019/07/13/Chip-8-Instruction-Scheduling-and-Frequency.html
+    //   In general, this means that we will need to tick the timer down 
+    //   based on the opcode that actually executes.
+
+    // TODO: Setup timer ticking stuff on the actual VM. I believe testTimer
+    // and the loop below work correctly
+
+    while (clockElapsed >= secondsPerInstruction) {
       chip8.execute(debugging)
+      clockElapsed -= secondsPerInstruction
+      timeToNextTimerTick += secondsPerInstruction
+      testInstructionsExecuted++
+      while (timeToNextTimerTick >= secondsPerTimerTick) {
+        chip8.setD(Math.max(0, chip8.getD() - 1))
+        chip8.setS(Math.max(0, chip8.getS() - 1))
+        timeToNextTimerTick -= secondsPerTimerTick
+        testTimer = Math.max(testTimer - 1, 0)
+      }
     }
+    testTotalElapsed += dt
+    // console.log(testTimer, testTotalElapsed, testInstructionsExecuted)
     renderCanvas(chip8, ctx)
     requestAnimationFrame(runVM)
   }
