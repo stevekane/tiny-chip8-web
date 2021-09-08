@@ -3,6 +3,8 @@ const { hundreds, tens, ones } = require("./decimal-utils")
 
 const IBM_URL = "http://localhost:9966/IBM Logo.ch8"
 const TEST_URL = "http://localhost:9966/test_opcode.ch8"
+const BC_TEST_URL = "http://localhost:9966/bc_test.ch8"
+const SC_TEST_URL = "http://localhost:9966/sc_test.ch8"
 const INSTRUCTION_BYTE_LENGTH = 2
 const INSTRUCTIONS_PER_CYCLE = 1
 const MAX_STACK_FRAMES = 128
@@ -25,7 +27,7 @@ class Chip8 {
     this.stack = new Uint16Array(MAX_STACK_FRAMES)
     this.memory = new Uint8Array(4096)
     this.memory.set(program, PROGRAM_MEMORY_OFFSET)
-    // this.memory.set(font, FONT_MEMORY_OFFSET)
+    this.memory.set(font, FONT_MEMORY_OFFSET)
     this.op = new Uint8Array(4)
   }
 
@@ -107,7 +109,7 @@ class Chip8 {
       let vx = this.getRegister(xRegister)
       let nn = bit8(this.getOp(2), this.getOp(3))
       let result = vx + nn
-      this.setRegister(xRegister,result)
+      this.setRegister(xRegister, result)
       if (debugging) console.log(`ADD ${nn} to V(${xRegister})`)
     }
 
@@ -300,12 +302,12 @@ class Chip8 {
 
     // FX33 set memory[I] to Hundreds(VX), set memory[I+1] to Tens(VX), set memory[i+2] to Ones(VX)
     else if (this.getOp(0) == 0xF && this.getOp(2) == 0x3 && this.getOp(3) == 0x3) {
-      let i = this.getI()
       let xRegister = this.getOp(1)
       let vx = this.getRegister(xRegister)
       let hundredsvx = hundreds(vx)
       let tensvx = tens(vx)
       let onesvx = ones(vx)
+      let i = this.getI()
       this.setMemory(i,hundredsvx) 
       this.setMemory(i+1,tensvx) 
       this.setMemory(i+2,onesvx) 
@@ -314,16 +316,20 @@ class Chip8 {
 
     // FX55 dump registers V0-VX to memory beginning at I
     else if (this.getOp(0) == 0xF && this.getOp(2) == 0x5 && this.getOp(3) == 0x5) {
+      let xRegister = this.getOp(1)
+      let vx = this.getRegister(xRegister)
       let i = this.getI()
-      this.dumpRegisters(i)
-      if (debugging) console.log(`DUMP REGISTERS`)
+      this.dumpRegisters(vx, i)
+      if (debugging) console.log(`DUMP REGISTERS V0-V${vx}}`)
     }
 
     // FX65 load registers V0-VX from memory beginning at I
     else if (this.getOp(0) == 0xF && this.getOp(2) == 0x6 && this.getOp(3) == 0x5) {
+      let xRegister = this.getOp(1)
+      let vx = this.getRegister(xRegister)
       let i = this.getI()
-      this.loadRegisters(i)
-      if (debugging) console.log(`LOAD REGISTERS`)
+      this.loadRegisters(vx, i)
+      if (debugging) console.log(`LOAD REGISTERS V0-V${vx}`)
     }
 
     // catch-all for debugging
@@ -405,12 +411,14 @@ class Chip8 {
     this.memory[i] = v
   }
 
-  dumpRegisters(i) {
-    this.memory.set(this.V, i)
+  // grab registers [0-x] and copy them into memory beginning at i
+  dumpRegisters(x, i) {
+    this.memory.set(this.V.slice(0, x+1), i)
   }
 
-  loadRegisters(i) {
-    this.V.set(this.memory.slice(i, i+16),0)
+  // grab memory addresses [i-i+x] and copy them into registers beginning at 0
+  loadRegisters(x, i) {
+    this.V.set(this.memory.slice(i, i+x+1), 0)
   }
 
   // TODO: handle the case of overlap/wrapping later
@@ -471,11 +479,29 @@ function renderCanvas(c, ctx) {
 }
 
 async function main() {
+  let font = [
+    0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
+    0x20, 0x60, 0x20, 0x20, 0x70, // 1
+    0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
+    0xF0, 0x10, 0xF0, 0x10, 0xF0, // 3
+    0x90, 0x90, 0xF0, 0x10, 0x10, // 4
+    0xF0, 0x80, 0xF0, 0x10, 0xF0, // 5
+    0xF0, 0x80, 0xF0, 0x90, 0xF0, // 6
+    0xF0, 0x10, 0x20, 0x40, 0x40, // 7
+    0xF0, 0x90, 0xF0, 0x90, 0xF0, // 8
+    0xF0, 0x90, 0xF0, 0x10, 0xF0, // 9
+    0xF0, 0x90, 0xF0, 0x90, 0x90, // A
+    0xE0, 0x90, 0xE0, 0x90, 0xE0, // B
+    0xF0, 0x80, 0x80, 0x80, 0xF0, // C
+    0xE0, 0x90, 0x90, 0x90, 0xE0, // D
+    0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
+    0xF0, 0x80, 0xF0, 0x80, 0x80  // F
+  ]
   let options = { responseType: "arraybuffer" }
   let contents = await fetch(TEST_URL, options)
   let buffer = await contents.arrayBuffer()
   let program = new Uint8Array(buffer)
-  let chip8 = new Chip8(program)
+  let chip8 = new Chip8(program, font)
   let canvas = document.createElement("canvas")
   let ctx = canvas.getContext("2d")
 
@@ -486,7 +512,7 @@ async function main() {
   document.body.style.backgroundColor = "grey"
   document.body.appendChild(canvas)
 
-  console.warn("REMINDER: Add actual fonts")
+  console.warn("REMINDER: MOVE FONTS TO FILE?")
   function runVM() {
     let instructionsExecuted = 0
     let debugging = true
