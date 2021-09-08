@@ -5,6 +5,7 @@ const testprogram = require("./test-program.js")
 
 const IBM_URL = "http://localhost:9966/IBM Logo.ch8"
 const TEST_URL = "http://localhost:9966/test_opcode.ch8"
+const TRIP8_URL = "http://localhost:9966/trip-8.ch8"
 const INSTRUCTION_BYTE_LENGTH = 2
 const MAX_STACK_FRAMES = 128
 const REGISTER_COUNT = 16
@@ -262,7 +263,6 @@ class Chip8 {
     else if (this.getOp(0) == 0xF && this.getOp(2) == 0x0 && this.getOp(3) == 0x7) {
       let xRegister = this.getOp(1)
       let d = this.getD()
-      console.log("set vx to D")
       this.setRegister(xRegister, d)
     }
 
@@ -270,7 +270,6 @@ class Chip8 {
     else if (this.getOp(0) == 0xF && this.getOp(2) == 0x1 && this.getOp(3) == 0x5) {
       let xRegister = this.getOp(1)
       let vx = this.getRegister(xRegister)
-      console.log("set D to vx")
       this.setD(vx)
     }
 
@@ -278,7 +277,6 @@ class Chip8 {
     else if (this.getOp(0) == 0xF && this.getOp(2) == 0x1 && this.getOp(3) == 0x8) {
       let xRegister = this.getOp(1)
       let vx = this.getRegister(xRegister)
-      console.log("set S to vx")
       this.setS(vx)
     }
 
@@ -480,7 +478,7 @@ function renderCanvas(c, ctx) {
 
 async function main() {
   let options = { responseType: "arraybuffer" }
-  let contents = await fetch(TEST_URL, options)
+  let contents = await fetch(TRIP8_URL, options)
   let buffer = await contents.arrayBuffer()
   let program = new Uint8Array(buffer)
   let chip8 = new Chip8(program, font)
@@ -500,6 +498,10 @@ async function main() {
   let testTimer = 600
   let testInstructionsExecuted = 0
   let testTotalElapsed = 0
+
+  console.warn("Cleanup timer code somehow")
+  console.warn("Cleanup rendering code somehow")
+  console.warn("Add proper debugging messages for all instructions")
 
   function runVM() {
     let debugging = false
