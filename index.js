@@ -2,6 +2,7 @@ const { highNibble, lowNibble, nthbit, bit8, bit12 } = require("./binary-utils")
 const { hundreds, tens, ones } = require("./decimal-utils")
 const font = require("./default-font.js")
 const testprogram = require("./test-program.js")
+const ReglRenderer = require('./regl-renderer')
 
 const IBM_URL = "http://localhost:9966/IBM Logo.ch8"
 const TEST_URL = "http://localhost:9966/test_opcode.ch8"
@@ -15,7 +16,10 @@ const FONT_MEMORY_OFFSET = 0 // tradition says 050 .. maybe change?
 const FONT_HEIGHT = 5
 const PROGRAM_MEMORY_OFFSET = 512
 const TIMER_FREQUENCY = 60
-const CLOCK_FREQUENCY = 500
+const CLOCK_FREQUENCY = 5000
+const CLOCK_PERIOD = 1 / CLOCK_FREQUENCY
+const TIMER_PERIOD = 1 / TIMER_FREQUENCY
+const DEBUGGING = false
 
 class Chip8 {
   constructor(program, font) {
@@ -28,8 +32,8 @@ class Chip8 {
     this.V = new Uint8Array(REGISTER_COUNT)
     this.stack = new Uint16Array(MAX_STACK_FRAMES)
     this.memory = new Uint8Array(4096)
-    this.memory.set(program, PROGRAM_MEMORY_OFFSET)
     this.memory.set(font, FONT_MEMORY_OFFSET)
+    this.memory.set(program, PROGRAM_MEMORY_OFFSET)
     this.op = new Uint8Array(4)
   }
 
@@ -295,7 +299,6 @@ class Chip8 {
       let xRegister = this.getOp(1)
       let vx = this.getRegister(xRegister)
       let result = FONT_MEMORY_OFFSET + vx * FONT_HEIGHT
-      console.log("sprite address")
       this.setI(result)
     }
 
@@ -337,6 +340,21 @@ class Chip8 {
         throw new Error(`Unrecognized instruction: ${this.op}`)
       }
     }
+  }
+
+  loadProgram(program, font) {
+    this.display.fill(0x00)
+    this.PC[0] = 512
+    this.SP[0] = 0
+    this.I[0] = 0
+    this.D[0] = 0
+    this.S[0] = 0
+    this.V.fill(0x00)
+    this.stack.fill(0x00)
+    this.memory.fill(0x00)
+    this.memory.set(font, FONT_MEMORY_OFFSET)
+    this.memory.set(program, PROGRAM_MEMORY_OFFSET)
+    this.op.fill(0x00)
   }
 
   fetchOp() {
@@ -443,102 +461,72 @@ class Chip8 {
   }
 }
 
-function renderConsole(c) {
-  console.log("------------------------------------------------------------------")
-  for (var j = 0; j < SCREEN_HEIGHT; j++) {
-    let offset = j * SCREEN_WIDTH
-    let buffer = "|"
-    for (var i = 0; i < SCREEN_WIDTH; i++) {
-      buffer += c.display[offset + i] ? "X" : " "
-    }
-    buffer += "|"
-    console.log(buffer)
-  }
-  console.log("------------------------------------------------------------------")
-}
-
-function renderCanvas(c, ctx) {
-  let imageData = ctx.createImageData(ctx.width, ctx.height)
-
-  for (var j = 0; j < SCREEN_HEIGHT; j++) {
-    let offset = j * SCREEN_WIDTH
-    for (var i = 0; i < SCREEN_WIDTH; i++) {
-      let pixel = c.display[offset + i]
-      let target = (offset + i) * 4
-
-      imageData.data[target + 0] = pixel ? 255 : 0
-      imageData.data[target + 1] = pixel ? 215 : 0
-      imageData.data[target + 3] = pixel ? 255 : 0
-    }
-  }
-  ctx.clearRect(0, 0, ctx.width, ctx.height)
-  ctx.scale(10,10)
-  ctx.putImageData(imageData, 0, 0)
+async function fetchProgram(url) {
+  let options = { responseType: "arraybuffer" }
+  let contents = await fetch(url, options)
+  let buffer = await contents.arrayBuffer()
+  let program = new Uint8Array(buffer)
+  return program
 }
 
 async function main() {
-  let options = { responseType: "arraybuffer" }
-  let contents = await fetch(TRIP8_URL, options)
-  let buffer = await contents.arrayBuffer()
-  let program = new Uint8Array(buffer)
-  let chip8 = new Chip8(program, font)
-  let canvas = document.createElement("canvas")
-  let ctx = canvas.getContext("2d")
-  canvas.width = SCREEN_WIDTH
-  canvas.height = SCREEN_HEIGHT
-  ctx.width = SCREEN_WIDTH
-  ctx.height = SCREEN_HEIGHT
-  document.body.style.backgroundColor = "grey"
-  document.body.appendChild(canvas)
+  let ibmlogo = await fetchProgram(IBM_URL)
+  let ch8test = await fetchProgram(TEST_URL)
+  let trip8demo = await fetchProgram(TRIP8_URL)
+  let chip8 = new Chip8(trip8demo, font)
+
+  document.addEventListener("keydown", function ({ key }) {
+    switch (key) {
+      case "1": return chip8.loadProgram(ibmlogo, font)
+      case "2": return chip8.loadProgram(ch8test, font)
+      case "3": return chip8.loadProgram(trip8demo, font)
+      default:  return console.log("wayhh")
+    }
+  })
+
+  // regl stuff.. this needs to be cleaned up. the order of initialization
+  // should be explicit and not the weird way it's reading properties from the
+  // in-dom canvas currently
+  let reglcanvas = document.createElement("canvas")
+  let SCALE_FACTOR = 10
+  let width = SCREEN_WIDTH * SCALE_FACTOR
+  let height = SCREEN_HEIGHT * SCALE_FACTOR
+
+  reglcanvas.style.width = width + "px"
+  reglcanvas.width = devicePixelRatio * width 
+  reglcanvas.height = devicePixelRatio * height 
+  document.body.appendChild(reglcanvas)
+
+  let reglrenderer = new ReglRenderer(reglcanvas, width, height)
+
+  // Timer stuff
   let prev = Date.now()
   let cur = Date.now()
   let dt = 0
   let clockElapsed = 0
   let timeToNextTimerTick = 0
-  let testTimer = 600
-  let testInstructionsExecuted = 0
-  let testTotalElapsed = 0
 
   console.warn("Cleanup timer code somehow")
   console.warn("Cleanup rendering code somehow")
   console.warn("Add proper debugging messages for all instructions")
 
   function runVM() {
-    let debugging = false
-    let secondsPerInstruction = 1 / CLOCK_FREQUENCY
-    let secondsPerTimerTick = 1 / TIMER_FREQUENCY
-  
     prev = cur
     cur = Date.now()
     dt = (cur - prev) / 1000
     clockElapsed += dt
 
-    // TODO: An important detail:
-    //   Actual Chip-8 is not a single cycle/instruction but rather it may be
-    //   many cycles resulting in different operation run-times.
-    //   A great reference is here:
-    //     https://jackson-s.me/2019/07/13/Chip-8-Instruction-Scheduling-and-Frequency.html
-    //   In general, this means that we will need to tick the timer down 
-    //   based on the opcode that actually executes.
-
-    // TODO: Setup timer ticking stuff on the actual VM. I believe testTimer
-    // and the loop below work correctly
-
-    while (clockElapsed >= secondsPerInstruction) {
-      chip8.execute(debugging)
-      clockElapsed -= secondsPerInstruction
-      timeToNextTimerTick += secondsPerInstruction
-      testInstructionsExecuted++
-      while (timeToNextTimerTick >= secondsPerTimerTick) {
+    while (clockElapsed >= CLOCK_PERIOD) {
+      chip8.execute(DEBUGGING)
+      clockElapsed -= CLOCK_PERIOD 
+      timeToNextTimerTick += CLOCK_PERIOD 
+      while (timeToNextTimerTick >= TIMER_PERIOD) {
         chip8.setD(Math.max(0, chip8.getD() - 1))
         chip8.setS(Math.max(0, chip8.getS() - 1))
-        timeToNextTimerTick -= secondsPerTimerTick
-        testTimer = Math.max(testTimer - 1, 0)
+        timeToNextTimerTick -= TIMER_PERIOD 
       }
     }
-    testTotalElapsed += dt
-    // console.log(testTimer, testTotalElapsed, testInstructionsExecuted)
-    renderCanvas(chip8, ctx)
+    reglrenderer.render(chip8.display, SCREEN_WIDTH, SCREEN_HEIGHT)
     requestAnimationFrame(runVM)
   }
   runVM()
