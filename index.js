@@ -3,10 +3,8 @@ const { hundreds, tens, ones } = require("./decimal-utils")
 
 const IBM_URL = "http://localhost:9966/IBM Logo.ch8"
 const TEST_URL = "http://localhost:9966/test_opcode.ch8"
-const BC_TEST_URL = "http://localhost:9966/bc_test.ch8"
-const SC_TEST_URL = "http://localhost:9966/sc_test.ch8"
 const INSTRUCTION_BYTE_LENGTH = 2
-const INSTRUCTIONS_PER_CYCLE = 1
+const INSTRUCTIONS_PER_CYCLE = 10
 const MAX_STACK_FRAMES = 128
 const REGISTER_COUNT = 16
 const SCREEN_WIDTH = 64
@@ -308,28 +306,26 @@ class Chip8 {
       let tensvx = tens(vx)
       let onesvx = ones(vx)
       let i = this.getI()
-      this.setMemory(i,hundredsvx) 
-      this.setMemory(i+1,tensvx) 
-      this.setMemory(i+2,onesvx) 
+      this.setMemory(i+0, hundredsvx) 
+      this.setMemory(i+1, tensvx) 
+      this.setMemory(i+2, onesvx) 
       if (debugging) console.log(`SET MEM[i] to ${hundredsvx}. SET MEM[i+1] to ${tensvx}. SET MEM[i+2] to ${onesvx}`)
     }
 
     // FX55 dump registers V0-VX to memory beginning at I
     else if (this.getOp(0) == 0xF && this.getOp(2) == 0x5 && this.getOp(3) == 0x5) {
       let xRegister = this.getOp(1)
-      let vx = this.getRegister(xRegister)
       let i = this.getI()
-      this.dumpRegisters(vx, i)
-      if (debugging) console.log(`DUMP REGISTERS V0-V${vx}}`)
+      this.dumpRegisters(xRegister, i)
+      if (debugging) console.log(`DUMP REGISTERS V0-V${xRegister}`)
     }
 
     // FX65 load registers V0-VX from memory beginning at I
     else if (this.getOp(0) == 0xF && this.getOp(2) == 0x6 && this.getOp(3) == 0x5) {
       let xRegister = this.getOp(1)
-      let vx = this.getRegister(xRegister)
       let i = this.getI()
-      this.loadRegisters(vx, i)
-      if (debugging) console.log(`LOAD REGISTERS V0-V${vx}`)
+      this.loadRegisters(xRegister, i)
+      if (debugging) console.log(`LOAD REGISTERS V0-V${xRegister}`)
     }
 
     // catch-all for debugging
@@ -515,12 +511,11 @@ async function main() {
   console.warn("REMINDER: MOVE FONTS TO FILE?")
   function runVM() {
     let instructionsExecuted = 0
-    let debugging = true
+    let debugging = false
   
     while (instructionsExecuted++ < INSTRUCTIONS_PER_CYCLE) {
       chip8.execute(debugging)
     }
-    // renderConsole(chip8)
     renderCanvas(chip8, ctx)
     requestAnimationFrame(runVM)
   }
