@@ -1,5 +1,7 @@
 const { highNibble, lowNibble, nthbit, bit8, bit12 } = require("./binary-utils")
 const { hundreds, tens, ones } = require("./decimal-utils")
+const font = require("./default-font.js")
+const testprogram = require("./test-program.js")
 
 const IBM_URL = "http://localhost:9966/IBM Logo.ch8"
 const TEST_URL = "http://localhost:9966/test_opcode.ch8"
@@ -417,24 +419,27 @@ class Chip8 {
     this.V.set(this.memory.slice(i, i+x+1), 0)
   }
 
-  // TODO: handle the case of overlap/wrapping later
   drawSprite(xMin, yMin, height, memoryOffset) {
     let didCollide = false
+
     for (var j = 0; j < height; j++) {
       let y = yMin + j
 
+      if (y > SCREEN_HEIGHT) {
+        break
+      }
       for (var i = 0; i < 8; i++) {
         let x = xMin + i
+
+        if (x > SCREEN_WIDTH) {
+          break
+        }
         let index = y * SCREEN_WIDTH + x
         let displayPixel = this.display[index]
         let spritePixel = nthbit(7 - i, this.memory[memoryOffset + j])
 
-        if (displayPixel > 0 && spritePixel > 0) {
-          didCollide = true
-          this.display[index] = 0
-        } else if (spritePixel > 0) {
-          this.display[index] = 1
-        }
+        didCollide = displayPixel && spritePixel
+        this.display[index] = displayPixel ^ spritePixel
       }
     } 
     this.setRegister(0xF, didCollide)
@@ -475,32 +480,13 @@ function renderCanvas(c, ctx) {
 }
 
 async function main() {
-  let font = [
-    0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
-    0x20, 0x60, 0x20, 0x20, 0x70, // 1
-    0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
-    0xF0, 0x10, 0xF0, 0x10, 0xF0, // 3
-    0x90, 0x90, 0xF0, 0x10, 0x10, // 4
-    0xF0, 0x80, 0xF0, 0x10, 0xF0, // 5
-    0xF0, 0x80, 0xF0, 0x90, 0xF0, // 6
-    0xF0, 0x10, 0x20, 0x40, 0x40, // 7
-    0xF0, 0x90, 0xF0, 0x90, 0xF0, // 8
-    0xF0, 0x90, 0xF0, 0x10, 0xF0, // 9
-    0xF0, 0x90, 0xF0, 0x90, 0x90, // A
-    0xE0, 0x90, 0xE0, 0x90, 0xE0, // B
-    0xF0, 0x80, 0x80, 0x80, 0xF0, // C
-    0xE0, 0x90, 0x90, 0x90, 0xE0, // D
-    0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
-    0xF0, 0x80, 0xF0, 0x80, 0x80  // F
-  ]
   let options = { responseType: "arraybuffer" }
   let contents = await fetch(TEST_URL, options)
   let buffer = await contents.arrayBuffer()
   let program = new Uint8Array(buffer)
-  let chip8 = new Chip8(program, font)
+  let chip8 = new Chip8(testprogram, font)
   let canvas = document.createElement("canvas")
   let ctx = canvas.getContext("2d")
-
   canvas.width = SCREEN_WIDTH
   canvas.height = SCREEN_HEIGHT
   ctx.width = SCREEN_WIDTH
@@ -508,7 +494,6 @@ async function main() {
   document.body.style.backgroundColor = "grey"
   document.body.appendChild(canvas)
 
-  console.warn("REMINDER: MOVE FONTS TO FILE?")
   function runVM() {
     let instructionsExecuted = 0
     let debugging = false
