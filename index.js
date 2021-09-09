@@ -1,13 +1,14 @@
 const { highNibble, lowNibble, nthbit, bit8, bit12 } = require("./src/binary-utils")
 const { hundreds, tens, ones } = require("./src/decimal-utils")
-const font = require("./src/default-font.js")
+const font = require("./src/default-font")
 const ReglRenderer = require('./src/regl-renderer')
 const WebAudioRenderer = require("./src/webaudio-renderer")
+const InputSystem = require("./src/input-system")
 
-const IBM_URL = "http://localhost:9966/ROMs/IBM Logo.ch8"
-const TEST_URL = "http://localhost:9966/ROMs/test_opcode.ch8"
-const TRIP8_URL = "http://localhost:9966/ROMs/trip-8.ch8"
-const BREAKOUT_URL = "http://localhost:9966/ROMs/breakout.ch8"
+const IBM_URL = "../ROMs/IBM Logo.ch8"
+const TEST_URL = "../ROMs/test_opcode.ch8"
+const TRIP8_URL = "../ROMs/trip-8.ch8"
+const BREAKOUT_URL = "../ROMs/breakout.ch8"
 const INSTRUCTION_BYTE_LENGTH = 2
 const MAX_STACK_FRAMES = 128
 const REGISTER_COUNT = 16
@@ -462,13 +463,6 @@ async function fetchProgram(url) {
   return program
 }
 
-const keyMappings = new Map([
-  [ "Digit1", 0x1 ], [ "Digit2", 0x2 ], [ "Digit3", 0x3 ], [ "Digit4", 0xC ],
-  [ "KeyQ", 0x4 ],   [ "KeyW", 0x5 ],   [ "KeyE", 0x6 ],   [ "KeyR", 0xD ],
-  [ "KeyA", 0x7 ],   [ "KeyS", 0x8 ],   [ "KeyD", 0x9 ],   [ "KeyF", 0xE ],
-  [ "KeyZ", 0xA ],   [ "KeyX", 0x0 ],   [ "KeyC", 0xB ],   [ "KeyV", 0xF ],
-])
-
 async function main() {
   let ibmlogo = await fetchProgram(IBM_URL)
   let ch8test = await fetchProgram(TEST_URL)
@@ -476,22 +470,8 @@ async function main() {
   let breakout = await fetchProgram(BREAKOUT_URL)
   let chip8 = new Chip8(breakout, font)
 
-  document.addEventListener("keydown", function ({ code }) {
-    if (keyMappings.has(code)) {
-      chip8.inputs[keyMappings.get(code)] = true
-    }
-  })
-
-  document.addEventListener("keyup", function ({ code }) {
-    if (keyMappings.has(code)) {
-      chip8.inputs[keyMappings.get(code)] = false
-    }
-  })
-
-  document.addEventListener("visibilitychange", function () {
-    console.log("Visibility change. Wiping inputs")
-    chip8.inputs.fill(0)
-  })
+  // Input stuff
+  let inputSystem = new InputSystem(document)
 
   // Video stuff
   let SCALE_FACTOR = 20
@@ -504,7 +484,7 @@ async function main() {
   reglcanvas.height = devicePixelRatio * height 
   document.body.appendChild(reglcanvas)
 
-  let reglrenderer = new ReglRenderer(reglcanvas, width, height)
+  let reglRenderer = new ReglRenderer(reglcanvas, width, height)
 
   // Audio stuff
   let audioContext = new AudioContext()
@@ -525,6 +505,7 @@ async function main() {
     clockElapsed += dt
     audioActiveThisFrame = false
 
+    chip8.inputs.set(inputSystem.keys)
     while (clockElapsed >= CLOCK_PERIOD) {
       chip8.execute(DEBUGGING)
       audioActiveThisFrame = audioActiveThisFrame || chip8.getS() > 0
@@ -536,7 +517,7 @@ async function main() {
         timeToNextTimerTick -= TIMER_PERIOD 
       }
     }
-    reglrenderer.render(chip8.display, SCREEN_WIDTH, SCREEN_HEIGHT)
+    reglRenderer.render(chip8.display, SCREEN_WIDTH, SCREEN_HEIGHT)
     webaudioRenderer.render(audioActiveThisFrame, VOLUME_GAIN)
     requestAnimationFrame(runVM)
   }

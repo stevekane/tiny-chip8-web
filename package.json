@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "browserify index.js -o built.js"
   },
   "keywords": [],
   "author": "",
@@ -12,5 +12,8 @@
   "dependencies": {
     "big-triangle": "^1.0.0",
     "regl": "^2.1.0"
+  },
+  "devDependencies": {
+    "browserify": "^17.0.0"
   }
 }
