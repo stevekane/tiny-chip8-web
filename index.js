@@ -1,12 +1,13 @@
-const { highNibble, lowNibble, nthbit, bit8, bit12 } = require("./binary-utils")
-const { hundreds, tens, ones } = require("./decimal-utils")
-const font = require("./default-font.js")
-const testprogram = require("./test-program.js")
-const ReglRenderer = require('./regl-renderer')
+const { highNibble, lowNibble, nthbit, bit8, bit12 } = require("./src/binary-utils")
+const { hundreds, tens, ones } = require("./src/decimal-utils")
+const font = require("./src/default-font.js")
+const ReglRenderer = require('./src/regl-renderer')
+const WebAudioRenderer = require("./src/webaudio-renderer")
 
-const IBM_URL = "http://localhost:9966/IBM Logo.ch8"
-const TEST_URL = "http://localhost:9966/test_opcode.ch8"
-const TRIP8_URL = "http://localhost:9966/trip-8.ch8"
+const IBM_URL = "http://localhost:9966/ROMs/IBM Logo.ch8"
+const TEST_URL = "http://localhost:9966/ROMs/test_opcode.ch8"
+const TRIP8_URL = "http://localhost:9966/ROMs/trip-8.ch8"
+const BREAKOUT_URL = "http://localhost:9966/ROMs/breakout.ch8"
 const INSTRUCTION_BYTE_LENGTH = 2
 const MAX_STACK_FRAMES = 128
 const REGISTER_COUNT = 16
@@ -16,13 +17,15 @@ const FONT_MEMORY_OFFSET = 0 // tradition says 050 .. maybe change?
 const FONT_HEIGHT = 5
 const PROGRAM_MEMORY_OFFSET = 512
 const TIMER_FREQUENCY = 60
-const CLOCK_FREQUENCY = 5000
+const CLOCK_FREQUENCY = 500
 const CLOCK_PERIOD = 1 / CLOCK_FREQUENCY
 const TIMER_PERIOD = 1 / TIMER_FREQUENCY
+const VOLUME_GAIN = .1
 const DEBUGGING = false
 
 class Chip8 {
   constructor(program, font) {
+    this.inputs = new Uint8Array(16)
     this.display = new Uint8Array(SCREEN_WIDTH * SCREEN_HEIGHT)
     this.PC = new Uint16Array([512])
     this.SP = new Uint16Array([0])
@@ -41,31 +44,21 @@ class Chip8 {
     this.fetchOp()
     this.stepPC(INSTRUCTION_BYTE_LENGTH)
 
-    // SKIP-LIST. Instructions NOT implemented yet
-    // DETAILS OF CARRY / BORROW for some mathematical operations. Investigate
-    // AMBIGUITIES IN INSTRUCTIONS between generations. May require configuration / settings
-    // EX9E if key at VX is down advance PC
-    // EXA1 if key at VX is up advance PC
-    // FX0A BLOCKS waiting for key stored in VX to be pressed
-
     // 00E0 clear  
     if (this.getOp(0) == 0x0 && this.getOp(2) == 0xE && this.getOp(3) == 0x0) {
       this.display.fill(0)
-      if (debugging) console.log("CLEAR")
     } 
 
     // 00EE return from subroutine
     else if (this.getOp(0) == 0x0 && this.getOp(2) == 0xE && this.getOp(3) == 0xE) {
       let addr = this.popStack()
       this.setPC(addr)
-      if (debugging) console.log(`RETURN to ${addr}`)
     }
 
     // 1NNN jump. set PC to 12-bit value NNN
     else if (this.getOp(0) == 0x1) {
       let nnn = bit12(this.getOp(1), this.getOp(2), this.getOp(3))
       this.setPC(nnn)
-      if (debugging) console.log(`JUMP to ${nnn}`)
     }
 
     // 2NNN call subroutine at NNN, store PC on stack and change PC
@@ -74,7 +67,6 @@ class Chip8 {
       let pc = this.getPC()
       this.pushStack(pc)
       this.setPC(nnn)
-      if (debugging) console.log(`CALL at ${nnn}. STORE ${pc}`)
     }
 
     // 3XNN if VX == NN step PC
@@ -82,7 +74,6 @@ class Chip8 {
       let vx = this.getRegister(this.getOp(1))
       let nn = bit8(this.getOp(2), this.getOp(3))
       this.stepPC(vx == nn ? INSTRUCTION_BYTE_LENGTH : 0)
-      if (debugging) console.log(`SKIP IF ${vx} == ${nn}`)
     }
 
     // 4XNN if VX != NN step PC
@@ -90,7 +81,6 @@ class Chip8 {
       let vx = this.getRegister(this.getOp(1))
       let nn = bit8(this.getOp(2), this.getOp(3))
       this.stepPC(vx != nn ? INSTRUCTION_BYTE_LENGTH : 0)
-      if (debugging) console.log(`SKIP IF ${vx} != ${nn}`)
     }
 
     // 5XY0 if VX == VY step PC
@@ -98,7 +88,6 @@ class Chip8 {
       let vx = this.getRegister(this.getOp(1))
       let vy = this.getRegister(this.getOp(2))
       this.stepPC(vx == vy ? INSTRUCTION_BYTE_LENGTH : 0)
-      if (debugging) console.log(`SKIP IF ${vx} == ${vy}`)
     }
 
     // 6XNN set VX to NN
@@ -106,7 +95,6 @@ class Chip8 {
       let x = this.getOp(1)
       let nn = bit8(this.getOp(2), this.getOp(3))
       this.setRegister(x, nn)
-      if (debugging) console.log(`SET V(${x}) to ${nn}`)
     }
     
     // 7XNN add NN to VX
@@ -116,7 +104,6 @@ class Chip8 {
       let nn = bit8(this.getOp(2), this.getOp(3))
       let result = vx + nn
       this.setRegister(xRegister, result)
-      if (debugging) console.log(`ADD ${nn} to V(${xRegister})`)
     }
 
     // 8XY0 set VX to VY
@@ -125,7 +112,6 @@ class Chip8 {
       let yRegister = this.getOp(2)
       let vy = this.getRegister(yRegister)
       this.setRegister(xRegister, vy)
-      if (debugging) console.log(`SET V(${xRegister}) to V(${yRegister})`)
     }
 
     // 8XY1 set VX to VX | VY
@@ -135,7 +121,6 @@ class Chip8 {
       let vx = this.getRegister(xRegister)
       let vy = this.getRegister(yRegister)
       this.setRegister(xRegister, vx | vy)
-      if (debugging) console.log(`SET V(${xRegister}) to V(${xRegister}) | V(${yRegister})`)
     }
 
     // 8XY2 set VX to VX & VY
@@ -145,7 +130,6 @@ class Chip8 {
       let vx = this.getRegister(xRegister)
       let vy = this.getRegister(yRegister)
       this.setRegister(xRegister, vx & vy)
-      if (debugging) console.log(`SET V(${xRegister}) to V(${xRegister}) & V(${yRegister})`)
     }
 
     // 8XY3 set VX to VX ^ VY.
@@ -155,7 +139,6 @@ class Chip8 {
       let vx = this.getRegister(xRegister)
       let vy = this.getRegister(yRegister)
       this.setRegister(xRegister, vx ^ vy)
-      if (debugging) console.log(`SET V(${xRegister}) to V(${xRegister}) ^ V(${yRegister})`)
     }
 
     // 8XY4 VX += VY. set VF to 1 when carry otherwise 0
@@ -167,7 +150,6 @@ class Chip8 {
       let result = vx + vy
       this.setRegister(0xF, result > 255)
       this.setRegister(xRegister, result)
-      if (debugging) console.log(`ADD V(${yRegister}) to V(${xRegister}). SET VF when carry`)
     }
 
     // 8XY5 VX -= VY. set VF to 0 when borrow otherwise 1
@@ -179,7 +161,6 @@ class Chip8 {
       let result = vx - vy
       this.setRegister(0xF, vx >= vy)
       this.setRegister(xRegister, result)
-      if (debugging) console.log(`SUB V(${yRegister}) from V(${xRegister}). SET VF when not borrow`)
     }
 
     // 8X_6 VX >>= 1. set VF to LSB(VX) then shift VX right by 1
@@ -190,7 +171,6 @@ class Chip8 {
       let result = vx >> 1
       this.setRegister(0xF, lsbvx)
       this.setRegister(xRegister, result)
-      if (debugging) console.log(`STORE LSB(V(${xRegister})) in 0xF. SHIFT V(${xRegister}) right by 1`)
     }
 
     // 8XY7 set VX to VY - VX. set VF to 0 when borrow otherwise 1
@@ -202,7 +182,6 @@ class Chip8 {
       let result = vy - vx
       this.setRegister(0xF, vy >= vx)
       this.setRegister(xRegister, result)
-      if (debugging) console.log(`SET V(${xRegister}) to V(${yRegister}) - V(${xRegister}). SET VF when not borrow`)
     }
 
     // 8XYE VX <<= 1. set VF to MSB(VX) then shift VX left by 1
@@ -213,7 +192,6 @@ class Chip8 {
       let result = vx << 1
       this.setRegister(0b1111, msbvx)
       this.setRegister(xRegister, result)
-      if (debugging) console.log(`STORE MSB(V(${xRegister})) in 0xF. SHIFT V(${xRegister}) left by 1`)
     }
 
     // 9XY0 if VX != VY step PC
@@ -221,14 +199,12 @@ class Chip8 {
       let vx = this.getRegister(this.getOp(1))
       let vy = this.getRegister(this.getOp(2))
       this.stepPC(vx != vy ? INSTRUCTION_BYTE_LENGTH : 0)
-      if (debugging) console.log(`SKIP IF ${vx} != ${vy}`)
     }
 
     // ANNN set I to NNN
     else if (this.getOp(0) == 0xA) {
       let nnn = bit12(this.getOp(1), this.getOp(2), this.getOp(3))
       this.setI(nnn)
-      if (debugging) console.log(`SET I to ${nnn}`)
     }
 
     // BNNN set PC to V0 + NNN
@@ -237,7 +213,6 @@ class Chip8 {
       let nnn = bit12(this.getOp(1), this.getOp(2), this.getOp(3))
       let result = v0 + nnn
       this.setPC(result)
-      if (debugging) console.log(`SET PC to ${v0} + ${nnn}`)
     }
 
     // CXNN set VX to NN & RandomNumber (0...255)
@@ -248,7 +223,6 @@ class Chip8 {
       let rand = Math.random() * 256 | 0
       let result = vx & rand
       this.setRegister(xRegister, result)
-      if (debugging) console.log(`SET V(${xRegister}) to ${nn} & ${rand}`)
     }
 
     // DXYN draw N pixels tall sprite from memory[I] at X from VX and Y from VY
@@ -260,7 +234,30 @@ class Chip8 {
       let height = this.getOp(3)
       let memoryOffset = this.getI()
       this.drawSprite(x, y, height, memoryOffset)
-      if (debugging) console.log(`DRAW at ${[x,y]} height ${height} at offset ${memoryOffset}`)
+    }
+
+    // EX9E skip if key(VX)
+    else if (this.getOp(0) == 0xE && this.getOp(2) == 0x9 && this.getOp(3) == 0xE) {
+      let xRegister = this.getOp(1)
+      let vx = this.getRegister(xRegister)
+      let key = this.inputs[vx]
+      this.stepPC(key ? INSTRUCTION_BYTE_LENGTH : 0)
+    }
+
+    // EXA1 skip if !key(VX)
+    else if (this.getOp(0) == 0xE && this.getOp(2) == 0xA && this.getOp(3) == 0x1) {
+      let xRegister = this.getOp(1)
+      let vx = this.getRegister(xRegister)
+      let key = this.inputs[vx]
+      this.stepPC(key ? 0 : INSTRUCTION_BYTE_LENGTH)
+    }
+
+    // FX0A halt until key(VX)
+    else if (this.getOp(0) == 0xF && this.getOp(2) == 0x0 && this.getOp(3) == 0xA) {
+      let xRegister = this.getOp(1)
+      let vx = this.getRegister(xRegister)
+      let key = this.inputs[vx]
+      this.stepPC(key ? 0 : -INSTRUCTION_BYTE_LENGTH)
     }
 
     // FX07 set VX to D
@@ -291,7 +288,6 @@ class Chip8 {
       let i = this.getI()
       let result = vx + i
       this.setI(result)
-      if (debugging) console.log(`ADD V(${xRegister}) to ${i}`)
     }
 
     // FX29 set I to sprite_address(VX). this requires us to decide where in memory we store the fonts
@@ -313,7 +309,6 @@ class Chip8 {
       this.setMemory(i+0, hundredsvx) 
       this.setMemory(i+1, tensvx) 
       this.setMemory(i+2, onesvx) 
-      if (debugging) console.log(`SET MEM[i] to ${hundredsvx}. SET MEM[i+1] to ${tensvx}. SET MEM[i+2] to ${onesvx}`)
     }
 
     // FX55 dump registers V0-VX to memory beginning at I
@@ -321,7 +316,6 @@ class Chip8 {
       let xRegister = this.getOp(1)
       let i = this.getI()
       this.dumpRegisters(xRegister, i)
-      if (debugging) console.log(`DUMP REGISTERS V0-V${xRegister}`)
     }
 
     // FX65 load registers V0-VX from memory beginning at I
@@ -329,7 +323,6 @@ class Chip8 {
       let xRegister = this.getOp(1)
       let i = this.getI()
       this.loadRegisters(xRegister, i)
-      if (debugging) console.log(`LOAD REGISTERS V0-V${xRegister}`)
     }
 
     // catch-all for debugging
@@ -453,7 +446,7 @@ class Chip8 {
         let displayPixel = this.display[index]
         let spritePixel = nthbit(7 - i, this.memory[memoryOffset + j])
 
-        didCollide = displayPixel && spritePixel
+        didCollide = didCollide || (displayPixel && spritePixel)
         this.display[index] = displayPixel ^ spritePixel
       }
     } 
@@ -469,28 +462,42 @@ async function fetchProgram(url) {
   return program
 }
 
+const keyMappings = new Map([
+  [ "Digit1", 0x1 ], [ "Digit2", 0x2 ], [ "Digit3", 0x3 ], [ "Digit4", 0xC ],
+  [ "KeyQ", 0x4 ],   [ "KeyW", 0x5 ],   [ "KeyE", 0x6 ],   [ "KeyR", 0xD ],
+  [ "KeyA", 0x7 ],   [ "KeyS", 0x8 ],   [ "KeyD", 0x9 ],   [ "KeyF", 0xE ],
+  [ "KeyZ", 0xA ],   [ "KeyX", 0x0 ],   [ "KeyC", 0xB ],   [ "KeyV", 0xF ],
+])
+
 async function main() {
   let ibmlogo = await fetchProgram(IBM_URL)
   let ch8test = await fetchProgram(TEST_URL)
   let trip8demo = await fetchProgram(TRIP8_URL)
-  let chip8 = new Chip8(trip8demo, font)
+  let breakout = await fetchProgram(BREAKOUT_URL)
+  let chip8 = new Chip8(breakout, font)
 
-  document.addEventListener("keydown", function ({ key }) {
-    switch (key) {
-      case "1": return chip8.loadProgram(ibmlogo, font)
-      case "2": return chip8.loadProgram(ch8test, font)
-      case "3": return chip8.loadProgram(trip8demo, font)
-      default:  return console.log("wayhh")
+  document.addEventListener("keydown", function ({ code }) {
+    if (keyMappings.has(code)) {
+      chip8.inputs[keyMappings.get(code)] = true
     }
   })
 
-  // regl stuff.. this needs to be cleaned up. the order of initialization
-  // should be explicit and not the weird way it's reading properties from the
-  // in-dom canvas currently
-  let reglcanvas = document.createElement("canvas")
-  let SCALE_FACTOR = 10
+  document.addEventListener("keyup", function ({ code }) {
+    if (keyMappings.has(code)) {
+      chip8.inputs[keyMappings.get(code)] = false
+    }
+  })
+
+  document.addEventListener("visibilitychange", function () {
+    console.log("Visibility change. Wiping inputs")
+    chip8.inputs.fill(0)
+  })
+
+  // Video stuff
+  let SCALE_FACTOR = 20
   let width = SCREEN_WIDTH * SCALE_FACTOR
   let height = SCREEN_HEIGHT * SCALE_FACTOR
+  let reglcanvas = document.createElement("canvas")
 
   reglcanvas.style.width = width + "px"
   reglcanvas.width = devicePixelRatio * width 
@@ -499,6 +506,11 @@ async function main() {
 
   let reglrenderer = new ReglRenderer(reglcanvas, width, height)
 
+  // Audio stuff
+  let audioContext = new AudioContext()
+  let webaudioRenderer = new WebAudioRenderer(audioContext)
+  let audioActiveThisFrame = false
+
   // Timer stuff
   let prev = Date.now()
   let cur = Date.now()
@@ -506,18 +518,16 @@ async function main() {
   let clockElapsed = 0
   let timeToNextTimerTick = 0
 
-  console.warn("Cleanup timer code somehow")
-  console.warn("Cleanup rendering code somehow")
-  console.warn("Add proper debugging messages for all instructions")
-
   function runVM() {
     prev = cur
     cur = Date.now()
     dt = (cur - prev) / 1000
     clockElapsed += dt
+    audioActiveThisFrame = false
 
     while (clockElapsed >= CLOCK_PERIOD) {
       chip8.execute(DEBUGGING)
+      audioActiveThisFrame = audioActiveThisFrame || chip8.getS() > 0
       clockElapsed -= CLOCK_PERIOD 
       timeToNextTimerTick += CLOCK_PERIOD 
       while (timeToNextTimerTick >= TIMER_PERIOD) {
@@ -527,6 +537,7 @@ async function main() {
       }
     }
     reglrenderer.render(chip8.display, SCREEN_WIDTH, SCREEN_HEIGHT)
+    webaudioRenderer.render(audioActiveThisFrame, VOLUME_GAIN)
     requestAnimationFrame(runVM)
   }
   runVM()
