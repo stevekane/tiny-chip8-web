@@ -846,6 +846,7 @@ module.exports = class ReglRenderer {
 module.exports = class WebAudioRenderer {
   constructor(ctx) {
     this.ctx = ctx
+    this.gain = null
     this.activeSound = null
   }
 

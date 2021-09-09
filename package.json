@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "build": "browserify index.js -o built.js"
+    "build": "browserify index.js -o public/built.js"
   },
   "keywords": [],
   "author": "",
